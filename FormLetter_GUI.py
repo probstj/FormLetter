@@ -148,28 +148,40 @@ class Application(tk.Frame):
             command=self.choose_dest_folder).grid(row=0, column=4)
 
 
-        var = tk.IntVar()
+        self.conversion_selection_var = tk.IntVar()
 
         tk.Label(frame, text="").grid(row=1)
 
         style.configure("TRadiobutton", background=frame["background"])
-        r1 = ttk.Radiobutton(frame, text='convert all', variable=var, value=1)
+        r1 = ttk.Radiobutton(
+                frame, text='convert all',
+                variable=self.conversion_selection_var, value=1)
         r1.grid(row=2, column=0, sticky='w')
-        r2 = ttk.Radiobutton(frame, text='convert range:', variable=var, value=2)
+        r2 = ttk.Radiobutton(
+                frame, text='convert range:',
+                variable=self.conversion_selection_var, value=2)
         r2.grid(row=3, column=0, sticky='w')
-        r3 = ttk.Radiobutton(frame, text='convert selection: ', variable=var, value=3)
+        r3 = ttk.Radiobutton(
+                frame, text='convert selection: ',
+                variable=self.conversion_selection_var, value=3)
         r3.grid(row=4, column=0, sticky='w')
         self.convert_from_spinbox = tk.Spinbox(
-                frame, from_=1, to=1, bg='white', state='normal')
+                frame, from_=1, to=1, bg='white', state='normal',
+                command=self.select_r2)
         self.convert_from_spinbox.grid(row=3, column=1, sticky='we')
         tk.Label(frame, text='to').grid(row=3, column=2, sticky='w')
         self.convert_to_spinbox = tk.Spinbox(
-                frame, from_=1, to=1, bg='white', state='normal')
+                frame, from_=1, to=1, bg='white', state='normal',
+                command=self.select_r2)
         self.convert_to_spinbox.grid(row=3, column=3, sticky='we')
-        PlaceholderEntry(frame, " for example: 1, 3-5, 7, 9", bg='white').grid(
+        self.convert_from_spinbox.bind("<Key>", self.select_r2)
+        self.convert_to_spinbox.bind("<Key>", self.select_r2)
+        self.convert_selection_entry = PlaceholderEntry(
+                frame, " for example: 1, 3-5, 7, 9", bg='white')
+        self.convert_selection_entry.grid(
                 row=4, column=1, sticky='we', columnspan=3)
-        var.set(1)
-        r1.invoke()
+        self.convert_selection_entry.bind("<Key>", self.select_r3)
+        self.conversion_selection_var.set(1)
 
 
 
@@ -195,9 +207,10 @@ class Application(tk.Frame):
         frame = tk.Frame(self, pady=5, padx=5)
         frame.pack(side=tk.BOTTOM, fill=tk.Y, expand=1, anchor="center")
 
-        ttk.Button(
-            frame, text="Go!", style="custom.TButton",
-            command=self.run_conversion).pack(
+        self.go_button = ttk.Button(
+            frame, text="Go!", style="custom.TButton", state="disabled",
+            command=self.run_conversion)
+        self.go_button.pack(
                 side=tk.LEFT, fill=tk.X)
         tk.Label(frame, text=" ").pack(side=tk.LEFT, padx=5)
         ttk.Button(
@@ -254,19 +267,31 @@ class Application(tk.Frame):
             self.sheet_names = self.sheet_name = None
             try:
                 self.data = pd.read_csv(fname)
+                self.clean_up_data()
                 self.update_data_columns()
             except pd.errors.ParserError as pe:
                 print("unknown data file format")
                 raise pe
+
+
         self.convert_from_spinbox["to"] = self.data.shape[0]
+        self.convert_from_spinbox.delete(0, tk.END)
+        self.convert_from_spinbox.insert(0, 1)
         self.convert_to_spinbox["to"] = self.data.shape[0]
+        self.convert_to_spinbox.delete(0, tk.END)
+        self.convert_to_spinbox.insert(0, self.data.shape[0])
 
     def update_sheet(self, event=None):
         #if event is not None:
         #    event.widget.selection_clear()
         self.sheet_name = self.sheets_combo.get()
         self.data = self.xlbook.parse(self.sheet_name)
+        self.clean_up_data()
         self.update_data_columns()
+
+    def clean_up_data(self):
+        # drop emtpy lines (where all values are nan):
+        self.data = self.data.dropna(axis=0, how='all')
 
     def update_data_columns(self):
         self.data_columns = list(self.data.columns)
@@ -287,8 +312,49 @@ class Application(tk.Frame):
             self.dir_edt.delete(0, tk.END)
             self.dir_edt.insert(0, result)
 
+    def select_r2(self, event=None):
+        self.conversion_selection_var.set(2)
+
+    def select_r3(self, event=None):
+        self.conversion_selection_var.set(3)
+
+    def get_indexes_to_convert(self):
+        start = 0 # TODO
+        count = self.data.shape[0]
+        end = count - start
+        if self.conversion_selection_var.get() == 1:
+            # convert all
+            return range(start, end + 1)
+        elif self.conversion_selection_var.get() == 2:
+            # convert from..to
+            start = max(start, int(self.convert_from_spinbox.get()))
+            end = min(end, int(self.convert_to_spinbox.get()))
+            return range(start, end + 1)
+        else:
+            rangetxt = self.convert_selection_entry.get().strip()
+            if rangetxt.startswith("for example") or not rangetxt:
+                raise ValueError("Please specify pages to convert")
+            entries = rangetxt.split(",")
+            lst = []
+            for entry in entries:
+                if not entry:
+                    continue
+                if '-' in entry:
+                    f, t = entry.split('-')
+                    lst.extend(
+                        range(
+                            max(start, int(f.strip()),
+                            min(end, int(t.strip())))))
+                else:
+                    num = int(entry.strip())
+                    if num <= end and num >= start:
+                        lst.append(num)
+            return list(set(sorted(lst)))
+
+
     def run_conversion(self):
-        print("TODO")
+        indexes = self.get_indexes_to_convert()
+        print(list(indexes))
 
 
 def main():
