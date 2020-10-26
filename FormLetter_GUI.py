@@ -67,6 +67,7 @@ class Application(tk.Frame):
             'TEntry',
             fieldbackground=[('disabled', 'gray80')])
         style.configure("custom.TButton", padding=2)
+
         # https://stackoverflow.com/questions/24768090/progressbar-in-tkinter-with-a-label-inside#40348163
         style.layout("TProgressbar",
          [('TProgressbar.trough',
@@ -116,11 +117,16 @@ class Application(tk.Frame):
         frame = tk.LabelFrame(self, text="Options", pady=5, padx=5)
         frame.pack(side=tk.TOP, fill=tk.X, expand=0)
 
-        tk.Label(frame, text="Skip dataset if ").pack(side=tk.LEFT)
+        style.configure("TCheckbutton", background=frame["background"])
+        self.skip_var = tk.IntVar(0)
+        ttk.Checkbutton(
+            frame, text=" Skip dataset if ", command=self.on_skipcheck,
+            var=self.skip_var).pack(side=tk.LEFT)
         self.skip_combo = ttk.Combobox(
                 frame, values=[], width=1,
                 state='disabled', style="custom.TCombobox")
-        self.skip_combo.pack(side=tk.LEFT, fill=tk.X, expand=1, ipady=2, pady=5)
+        self.skip_combo.pack(
+                side=tk.LEFT, fill=tk.X, expand=1, ipady=2, pady=5)
         tk.Label(frame, text=" equals ").pack(side=tk.LEFT)
         self.skip_edt = ttk.Entry(frame, width=1, state='disabled')
         self.skip_edt.pack(side=tk.LEFT, fill=tk.X, expand=1, ipady=2)
@@ -133,28 +139,33 @@ class Application(tk.Frame):
 
         tk.Grid.columnconfigure(frame, 1, weight=1)
         tk.Grid.columnconfigure(frame, 3, weight=1)
-        tk.Label(frame, text="Save pdf-files in: ").grid(row=0, column=0, sticky='w') #pack(side=tk.LEFT)
-        self.dir_edt = ttk.Entry(frame, width=1, state='disabled')
-        self.dir_edt.grid(row=0, column=1, sticky='nwse', columnspan=3) #.pack(side=tk.LEFT, fill=tk.X, expand=1, pady=2)
+        tk.Label(frame, text="Save pdf-files in: ").grid(
+                row=0, column=0, sticky='w')
+        self.dir_edt = ttk.Entry(frame, width=1)
+        self.dir_edt.grid(row=0, column=1, sticky='nwse', columnspan=3)
         ttk.Button(
-            frame, text="...", style="custom.TButton", width=4, state='disabled',
-            command=self.open_template_dialog).grid(row=0, column=4)  #pack(side=tk.LEFT, fill=tk.X)
+            frame, text="...", style="custom.TButton", width=4,
+            command=self.choose_dest_folder).grid(row=0, column=4)
 
 
         var = tk.IntVar()
 
         tk.Label(frame, text="").grid(row=1)
-       # rframe = tk.Frame(frame, pady=5, padx=5)
-   #     rframe.pack(side=tk.TOP, fill=tk.X, expand=0)
-        r1 = tk.Radiobutton(frame, text='convert all', variable=var, value=1)
-        r1.grid(row=2, column=0, sticky='w') #pack(side=tk.TOP)
-        r2 = tk.Radiobutton(frame, text='convert range:', variable=var, value=2)
+
+        style.configure("TRadiobutton", background=frame["background"])
+        r1 = ttk.Radiobutton(frame, text='convert all', variable=var, value=1)
+        r1.grid(row=2, column=0, sticky='w')
+        r2 = ttk.Radiobutton(frame, text='convert range:', variable=var, value=2)
         r2.grid(row=3, column=0, sticky='w')
-        r3 = tk.Radiobutton(frame, text='convert selection: ', variable=var, value=3)
+        r3 = ttk.Radiobutton(frame, text='convert selection: ', variable=var, value=3)
         r3.grid(row=4, column=0, sticky='w')
-        tk.Spinbox(frame, from_=1, to=1, bg='white', state='normal').grid(row=3, column=1, sticky='we')
+        self.convert_from_spinbox = tk.Spinbox(
+                frame, from_=1, to=1, bg='white', state='normal')
+        self.convert_from_spinbox.grid(row=3, column=1, sticky='we')
         tk.Label(frame, text='to').grid(row=3, column=2, sticky='w')
-        tk.Spinbox(frame, from_=1, to=1, bg='white', state='normal').grid(row=3, column=3, sticky='we')
+        self.convert_to_spinbox = tk.Spinbox(
+                frame, from_=1, to=1, bg='white', state='normal')
+        self.convert_to_spinbox.grid(row=3, column=3, sticky='we')
         PlaceholderEntry(frame, " for example: 1, 3-5, 7, 9", bg='white').grid(
                 row=4, column=1, sticky='we', columnspan=3)
         var.set(1)
@@ -186,12 +197,12 @@ class Application(tk.Frame):
 
         ttk.Button(
             frame, text="Go!", style="custom.TButton",
-            command=self.open_template_dialog).pack(
+            command=self.run_conversion).pack(
                 side=tk.LEFT, fill=tk.X)
         tk.Label(frame, text=" ").pack(side=tk.LEFT, padx=5)
         ttk.Button(
             frame, text="Exit", style="custom.TButton",
-            command=self.open_template_dialog).pack(
+            command=self.master.destroy).pack(
                 side=tk.LEFT, fill=tk.X)
 
     def templatefile_edt_return(self, event):
@@ -247,6 +258,8 @@ class Application(tk.Frame):
             except pd.errors.ParserError as pe:
                 print("unknown data file format")
                 raise pe
+        self.convert_from_spinbox["to"] = self.data.shape[0]
+        self.convert_to_spinbox["to"] = self.data.shape[0]
 
     def update_sheet(self, event=None):
         #if event is not None:
@@ -257,7 +270,26 @@ class Application(tk.Frame):
 
     def update_data_columns(self):
         self.data_columns = list(self.data.columns)
-        print(self.data_columns)
+        self.skip_combo["values"] = self.data_columns
+
+    def on_skipcheck(self):
+        if self.skip_var.get():
+            self.skip_combo["state"] = "readonly"
+            self.skip_edt["state"] = "normal"
+        else:
+            self.skip_combo["state"] = "disabled"
+            self.skip_edt["state"] = "disabled"
+
+    def choose_dest_folder(self):
+        result = filedialog.askdirectory(
+            initialdir=os.path.curdir)
+        if result:
+            self.dir_edt.delete(0, tk.END)
+            self.dir_edt.insert(0, result)
+
+    def run_conversion(self):
+        print("TODO")
+
 
 def main():
     root = tk.Tk()
