@@ -11,6 +11,8 @@ import babel.numbers, babel.dates
 import weasyprint
 import os.path
 import sys, os
+import locale
+#import xlrd # just as a reminder that we need to install this package
 
 
 # Jinja2 documentation: https://jinja.palletsprojects.com/en/2.11.x/
@@ -61,6 +63,9 @@ class FormLetter(object):
                 print("unknown data file format")
                 raise pe
 
+        # drop emtpy lines (where all values are nan):
+        self.data = self.data.dropna(axis=0, how='all')
+
         # find column names with spaces:
         columns = list(self.data.columns)
         for i, column in enumerate(columns):
@@ -76,10 +81,11 @@ class FormLetter(object):
         self.subdict = {key: "" for key in self.data.columns}
 
         self.env = jinja2.Environment(
-                loader=jinja2.FileSystemLoader(searchpath="./"))
+                loader=jinja2.FileSystemLoader(
+                        os.path.split(self.template_file)[0]))
 
         # On a tested windows machine, babel wouldn't work because there
-        # was no current locale set. Apparently, there is no `LC_NUMERIC` 
+        # was no current locale set. Apparently, there is no `LC_NUMERIC`
         # environment variable, so the babel default locale of
         # `babel.default_locale('LC_NUMERIC')` returns `None`
         # Solution: Set the environment variable 'LC_ALL' since it will
@@ -100,10 +106,12 @@ class FormLetter(object):
         self.env.filters['format_datetime'] = babel.dates.format_datetime
         # TODO self.env.filters['format_adapted_date'] = date_formatter
 
-        self.template = self.env.get_template(self.template_file)
+        self.template = self.env.get_template(
+                os.path.split(self.template_file)[1])
 
         print(self.data.columns) # TODO debugging only
         print(self.data.head())
+        #print(self.data.dtypes)
         print()
         print()
 

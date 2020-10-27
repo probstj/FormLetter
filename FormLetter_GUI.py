@@ -16,8 +16,8 @@ import pandas as pd
 from threading import Thread, Event
 import queue
 import time
-#import xlrd
-#import FormLetter
+#import xlrd # just as a reminder that we need to install this package
+import FormLetter
 
 
 class PlaceholderEntry(tk.Entry):
@@ -58,6 +58,10 @@ class Application(tk.Frame):
         self.queue = queue.Queue()
         self.num_to_convert = 0
         self.create_widgets()
+        self.sheet_name = self.sheet_names = None
+        self.xlbook = None
+        self.data = None
+        self.datafilename = None
 
     def create_widgets(self):
         self.ttkstyle = ttk.Style()
@@ -155,39 +159,51 @@ class Application(tk.Frame):
             frame, text="...", style="custom.TButton", width=4,
             command=self.choose_dest_folder).grid(row=0, column=4)
 
+        tk.Label(frame, text="Output file name: ").grid(
+                row=1, column=0, sticky='w')
+        self.destfile_edt = ttk.Entry(frame, width=1)
+        self.destfile_edt.grid(row=1, column=1, sticky='nwse', columnspan=3)
+        self.destfile_edt.bind("<Key>", self.destfile_edt_focus_out)
+        self.destfile_edt.bind("<Button>", self.destfile_edt_focus_out)
+        self.destfile_edt.insert(0, "{i:04}_{RN}_{Person}.pdf")
+        self.destfile_edt["state"] = "readonly" # TODO
+        ttk.Button(
+            frame, text="?", style="custom.TButton", width=4,
+            command=self.show_destfile_help).grid(row=1, column=4)
+
 
         self.conversion_selection_var = tk.IntVar()
 
-        tk.Label(frame, text="").grid(row=1)
+        tk.Label(frame, text="").grid(row=2)
 
         self.ttkstyle.configure("TRadiobutton", background=frame["background"])
         r1 = ttk.Radiobutton(
                 frame, text='convert all',
                 variable=self.conversion_selection_var, value=1)
-        r1.grid(row=2, column=0, sticky='w')
+        r1.grid(row=3, column=0, sticky='w')
         r2 = ttk.Radiobutton(
                 frame, text='convert range:',
                 variable=self.conversion_selection_var, value=2)
-        r2.grid(row=3, column=0, sticky='w')
+        r2.grid(row=4, column=0, sticky='w')
         r3 = ttk.Radiobutton(
                 frame, text='convert selection: ',
                 variable=self.conversion_selection_var, value=3)
-        r3.grid(row=4, column=0, sticky='w')
+        r3.grid(row=5, column=0, sticky='w')
         self.convert_from_spinbox = tk.Spinbox(
                 frame, from_=1, to=1, bg='white', state='normal',
                 command=self.select_r2)
-        self.convert_from_spinbox.grid(row=3, column=1, sticky='we')
-        tk.Label(frame, text='to').grid(row=3, column=2, sticky='w')
+        self.convert_from_spinbox.grid(row=4, column=1, sticky='we')
+        tk.Label(frame, text='to').grid(row=4, column=2, sticky='w')
         self.convert_to_spinbox = tk.Spinbox(
                 frame, from_=1, to=1, bg='white', state='normal',
                 command=self.select_r2)
-        self.convert_to_spinbox.grid(row=3, column=3, sticky='we')
+        self.convert_to_spinbox.grid(row=4, column=3, sticky='we')
         self.convert_from_spinbox.bind("<Key>", self.select_r2)
         self.convert_to_spinbox.bind("<Key>", self.select_r2)
         self.convert_selection_entry = PlaceholderEntry(
                 frame, " for example: 1, 3-5, 7, 9", bg='white')
         self.convert_selection_entry.grid(
-                row=4, column=1, sticky='we', columnspan=3)
+                row=5, column=1, sticky='we', columnspan=3)
         self.convert_selection_entry.bind("<Key>", self.select_r3)
         self.conversion_selection_var.set(1)
 
@@ -254,7 +270,7 @@ class Application(tk.Frame):
             self.datafile_edt.insert(0, fname)
             self.open_data_file(fname)
 
-    def open_data_file(self, fname):
+    def open_data_file(self, fname, keep_selected_sheet=False):
         self.datafilename = fname
         ext = os.path.splitext(fname)[-1]
         if ext in ['.xlsx', '.xls']:
@@ -263,7 +279,13 @@ class Application(tk.Frame):
             self.sheet_names = self.xlbook.sheet_names
             self.sheets_combo.config(state='readonly')
             self.sheets_combo["values"] = self.sheet_names
-            self.sheets_combo.current(newindex=0)
+            if (keep_selected_sheet
+                and self.sheet_name is not None
+                and self.sheet_name in self.sheet_names):
+                self.sheets_combo.set(self.sheet_name)
+            else:
+                # choose first sheet:
+                self.sheets_combo.current(newindex=0)
             self.update_sheet()
         else:
             self.sheets_combo.set("")
@@ -317,6 +339,13 @@ class Application(tk.Frame):
         if result:
             self.dir_edt.delete(0, tk.END)
             self.dir_edt.insert(0, result)
+
+    def destfile_edt_focus_out(self, event=None):
+        #TODO check if right format, add ending .pdf
+        messagebox.showinfo("Under construction", "Sorry, the destination file name cannot be changed yet.")
+
+    def show_destfile_help(self):
+        messagebox.showinfo("Help", "under construction...") #TODO
 
     def select_r2(self, event=None):
         self.conversion_selection_var.set(2)
@@ -392,26 +421,137 @@ class Application(tk.Frame):
 
     def run_conversion(self):
 
+        # check that everything is filled in nicely:
+
+        tempf = self.templatefile_edt.get()
+        if not tempf:
+            messagebox.showerror("Error", "Please choose template file.")
+            return
+        # TODO do this check on <Focus_Out> of entry:
+        if not os.path.isfile(tempf):
+            messagebox.showerror(
+                "Error", 'Template file "%s" does not exist.' % tempf)
+            return
+
+        dataf = self.datafile_edt.get()
+        if not dataf:
+            messagebox.showerror("Error", "Please choose data file.")
+            return
+        # TODO do this check on <Focus_Out> of entry:
+        if self.datafilename != dataf:
+            # user changed file name without hitting enter, reload:
+            if not os.path.isfile(dataf):
+                messagebox.showerror(
+                    "Error", 'Data file "%s" does not exist.' % dataf)
+                return
+            self.open_data_file(dataf, keep_selected_sheet=True)
+
+        skip_data = bool(self.skip_var.get())
+        if skip_data:
+            skip_column = self.skip_combo.get()
+            if skip_column not in self.data_columns:
+                messagebox.showerror(
+                    "Error",
+                    'Data column "%s" does not exist (skip data).' % skip_column)
+                return
+            skip_value = self.skip_edt.get()
+            if not skip_value:
+                messagebox.showerror(
+                    "Error",
+                    "Please fill in a proper value when to skip data.")
+                return
+        else:
+            skip_value = skip_column = None
+
+        destfile_format = self.destfile_edt.get()
+        if not destfile_format:
+            messagebox.showerror(
+                "Error",
+                "Please fill in a proper destination file name.")
+            return
+
+        destdir = self.dir_edt.get()
+        if not destdir:
+            messagebox.showerror(
+                "Error",
+                "Please fill in a proper destination folder.")
+            return
+        if os.path.isfile(destdir):
+            messagebox.showerror(
+                "Error",
+                "Destination folder is an already existing file.")
+            return
+        if os.path.isdir(destdir):
+            result = messagebox.askokcancel(
+                "Directory exists",
+                "Warning: Destination directory already exists. "
+                "If you continue, contained files will be overwritten.")
+            if not result:
+                # user chose 'cancel'
+                return
+        else:
+            # create directory:
+            os.makedirs(destdir)
+
         indexes = self.get_indexes_to_convert()
         self.num_to_convert = len(indexes)
-        print(list(indexes))
-
         self.progressbar["max"] = self.num_to_convert
 
         self.stop_thread.clear()
-        self.thread1 = Thread(target=self.secondary_thread_loop)
+        self.thread1 = Thread(
+            target=self.secondary_thread_loop,
+            kwargs={
+                "templatefile": tempf,
+                "datafile": dataf,
+                "sheet": self.sheet_name,
+                "do_skip_data": skip_data,
+                "skip_data_column": skip_column,
+                "skip_data_value": skip_value,
+                "destfile_format": destfile_format,
+                "destdir": destdir,
+                "indexes": indexes})
         self.thread1.start()
         self.go_button["style"] = 'red.TButton'
         self.go_button["text"] = "Stop"
         self.go_button["command"] = self.stop
         self.periodic_call()
 
-    def secondary_thread_loop(self):
-        i = 0
-        while not self.stop_thread.is_set() and i < self.num_to_convert:
-            time.sleep(0.1)
+    def secondary_thread_loop(
+            self, templatefile, datafile, sheet,
+            do_skip_data, skip_data_column, skip_data_value,
+            destfile_format, destdir, indexes):
+        print('using template file: %s' % templatefile)
+        print('using data file: %s' % datafile)
+        if sheet is not None:
+            print('using sheet name: %s' % sheet)
+
+        fl = FormLetter.FormLetter(templatefile, datafile, sheet)
+        # workaround: fix skip_data_column name:
+        if do_skip_data:
+            skip_data_column = skip_data_column.replace(" ", "_")
+            # another workaround: convert skip_data_value into proper type:
+            skip_data_dtype = fl.data[skip_data_column].dtype
+            skip_data_value = pd.np.array(
+                    [skip_data_value,]).astype(skip_data_dtype)[0]
+        total = len(indexes)
+
+        for i, rownum in enumerate(indexes):
+            if self.stop_thread.is_set():
+                break
+            row = fl.get_data_row(rownum)
+            fname = os.path.join(
+                destdir, destfile_format.format(i=rownum+1, **row))
+            if do_skip_data and row[skip_data_column] == skip_data_value:
+                print("skipping %i/%i: file %s" % (rownum+1, total, fname))
+                time.sleep(0.001) # just in case we skip a lot
+                # communicate progress:
+                self.queue.put(i + 1)
+                continue
+
+            print("procesing %i/%i: file %s" % (rownum+1, total, fname))
+            fl.write_to_pdf(i, fname)
+            # communicate progress:
             self.queue.put(i + 1)
-            i += 1
 
     def leave(self):
         if self.thread1:
