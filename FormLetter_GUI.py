@@ -13,6 +13,9 @@ from tkinter import ttk
 from tkinter import filedialog
 from tkinter import messagebox
 import pandas as pd
+from threading import Thread, Event
+import queue
+import time
 #import xlrd
 #import FormLetter
 
@@ -50,12 +53,16 @@ class Application(tk.Frame):
         super().__init__(master)
         self.master = master
         self.pack(fill=tk.BOTH, expand=1, padx=5, pady=5)
+        self.thread1 = None
+        self.stop_thread = Event()
+        self.queue = queue.Queue()
+        self.num_to_convert = 0
         self.create_widgets()
 
     def create_widgets(self):
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.map(
+        self.ttkstyle = ttk.Style()
+        self.ttkstyle.theme_use('clam')
+        self.ttkstyle.map(
             'custom.TCombobox',
             fieldbackground=[('readonly','white'), ('disabled', 'gray80')],
             foreground=[('readonly','black')],
@@ -63,13 +70,14 @@ class Application(tk.Frame):
             selectbackground=[('readonly', '!focus', 'white')],
             selectforeground=[('readonly', '!focus', 'black')]
             )
-        style.map(
+        self.ttkstyle.map(
             'TEntry',
             fieldbackground=[('disabled', 'gray80')])
-        style.configure("custom.TButton", padding=2)
+        self.ttkstyle.configure("custom.TButton", padding=2)
+        self.ttkstyle.configure("red.TButton", padding=2, foreground='red')
 
         # https://stackoverflow.com/questions/24768090/progressbar-in-tkinter-with-a-label-inside#40348163
-        style.layout("TProgressbar",
+        self.ttkstyle.layout("TProgressbar",
          [('TProgressbar.trough',
            {'children': [('LabeledProgressbar.pbar',
                           {'side': 'left', 'sticky': 'ns'}),
@@ -117,7 +125,7 @@ class Application(tk.Frame):
         frame = tk.LabelFrame(self, text="Options", pady=5, padx=5)
         frame.pack(side=tk.TOP, fill=tk.X, expand=0)
 
-        style.configure("TCheckbutton", background=frame["background"])
+        self.ttkstyle.configure("TCheckbutton", background=frame["background"])
         self.skip_var = tk.IntVar(0)
         ttk.Checkbutton(
             frame, text=" Skip dataset if ", command=self.on_skipcheck,
@@ -152,7 +160,7 @@ class Application(tk.Frame):
 
         tk.Label(frame, text="").grid(row=1)
 
-        style.configure("TRadiobutton", background=frame["background"])
+        self.ttkstyle.configure("TRadiobutton", background=frame["background"])
         r1 = ttk.Radiobutton(
                 frame, text='convert all',
                 variable=self.conversion_selection_var, value=1)
@@ -187,18 +195,16 @@ class Application(tk.Frame):
 
         tk.Label(self, text="").pack(side=tk.TOP)
         frame = tk.LabelFrame(self, text="Progress", pady=5, padx=5)
-        frame.pack(side=tk.TOP, fill=tk.X, expand=0)
+        frame.pack(side=tk.BOTTOM, fill=tk.X, expand=0)
 
-        p1 = ttk.Progressbar(frame, value=5, maximum=300,
+        self.progressbar = ttk.Progressbar(frame, value=0, maximum=100,
                      mode="determinate",
                      #orient=tk.HORIZONTAL,
                      style="TProgressbar")
-        p1.pack(side=tk.LEFT, fill=tk.X, expand=1)
+        self.progressbar.pack(side=tk.LEFT, fill=tk.X, expand=1)
         # change the text of the progressbar,
         # the trailing spaces are here to properly center the text
-        style.configure("TProgressbar", text="0 %      ")
-        style.configure("TProgressbar", text="{0} %      ".format(76))
-        style.configure("TProgressbar", text="10/2345       ")
+        self.ttkstyle.configure("TProgressbar", text="0 %      ")
 
 
 
@@ -208,14 +214,14 @@ class Application(tk.Frame):
         frame.pack(side=tk.BOTTOM, fill=tk.Y, expand=1, anchor="center")
 
         self.go_button = ttk.Button(
-            frame, text="Go!", style="custom.TButton", state="disabled",
+            frame, text="Go!", style="custom.TButton",
             command=self.run_conversion)
         self.go_button.pack(
                 side=tk.LEFT, fill=tk.X)
         tk.Label(frame, text=" ").pack(side=tk.LEFT, padx=5)
         ttk.Button(
             frame, text="Exit", style="custom.TButton",
-            command=self.master.destroy).pack(
+            command=self.leave).pack(
                 side=tk.LEFT, fill=tk.X)
 
     def templatefile_edt_return(self, event):
@@ -319,7 +325,7 @@ class Application(tk.Frame):
         self.conversion_selection_var.set(3)
 
     def get_indexes_to_convert(self):
-        start = 0 # TODO
+        start = 0
         count = self.data.shape[0]
         end = count - start
         if self.conversion_selection_var.get() == 1:
@@ -351,10 +357,63 @@ class Application(tk.Frame):
                         lst.append(num)
             return list(set(sorted(lst)))
 
+    # https://stackoverflow.com/questions/15323574/how-to-connect-a-progress-bar-to-a-function
+    def periodic_call(self):
+        # check for progress updates from queue:
+        self.check_queue()
+        if self.thread1 and self.thread1.is_alive():
+            self.master.after(100, self.periodic_call)
+        else:
+            self.thread1 = None
+            # finished! Return button to original state:
+            self.go_button["style"] = 'custom.TButton'
+            self.go_button["text"] = "Go!"
+            self.go_button["command"] = self.run_conversion
+
+    def check_queue(self):
+        last = None
+        while self.queue.qsize():
+            try:
+                last = self.queue.get_nowait()
+            except queue.Empty:
+                pass
+        if last:
+            self.progressbar["value"] = last
+            self.ttkstyle.configure(
+                "TProgressbar",
+                text="%i/%i       " % (last, self.num_to_convert))
+
+    def stop(self):
+        self.stop_thread.set()
+        self.thread1.join()
 
     def run_conversion(self):
+
         indexes = self.get_indexes_to_convert()
+        self.num_to_convert = len(indexes)
         print(list(indexes))
+
+        self.progressbar["max"] = self.num_to_convert
+
+        self.stop_thread.clear()
+        self.thread1 = Thread(target=self.secondary_thread_loop)
+        self.thread1.start()
+        self.go_button["style"] = 'red.TButton'
+        self.go_button["text"] = "Stop"
+        self.go_button["command"] = self.stop
+        self.periodic_call()
+
+    def secondary_thread_loop(self):
+        i = 0
+        while not self.stop_thread.is_set() and i < self.num_to_convert:
+            time.sleep(0.1)
+            self.queue.put(i + 1)
+            i += 1
+
+    def leave(self):
+        if self.thread1:
+            self.stop()
+        self.master.destroy()
 
 
 def main():
@@ -362,11 +421,11 @@ def main():
     app = Application(master=root)
     # set window title
     root.title("FormLetter")
-    root.geometry("640x600")
+    root.geometry("640x500")
 
     def on_closing():
         #if messagebox.askokcancel("Quit", "Do you want to quit?"):
-        root.destroy()
+        app.leave()
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
     app.mainloop()
