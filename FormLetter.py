@@ -94,6 +94,10 @@ class FormLetter(object):
         if babel.default_locale('LC_NUMERIC') is None:
             if os.getenv('LC_ALL') is None:
                 os.environ['LC_ALL'] = self.locale
+        # Since the babel environment was already set during import, we
+        # need to monkey-patch a bit:
+        babel.numbers.LC_NUMERIC = babel.default_locale('LC_NUMERIC')
+        babel.numbers.LC_TIME = babel.default_locale('LC_TIME')
 
         # Add some formatters to Jinja environment, so they can be
         # used in the template:
