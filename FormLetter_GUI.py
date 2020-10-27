@@ -325,37 +325,40 @@ class Application(tk.Frame):
         self.conversion_selection_var.set(3)
 
     def get_indexes_to_convert(self):
-        start = 0
+        start = 1
         count = self.data.shape[0]
-        end = count - start
+        end = count - start + 1
         if self.conversion_selection_var.get() == 1:
             # convert all
-            return range(start, end + 1)
+            return range(start - 1, end)
         elif self.conversion_selection_var.get() == 2:
             # convert from..to
             start = max(start, int(self.convert_from_spinbox.get()))
             end = min(end, int(self.convert_to_spinbox.get()))
-            return range(start, end + 1)
+            return range(start - 1, end)
         else:
             rangetxt = self.convert_selection_entry.get().strip()
             if rangetxt.startswith("for example") or not rangetxt:
                 raise ValueError("Please specify pages to convert")
-            entries = rangetxt.split(",")
-            lst = []
-            for entry in entries:
-                if not entry:
-                    continue
-                if '-' in entry:
-                    f, t = entry.split('-')
-                    lst.extend(
-                        range(
-                            max(start, int(f.strip()),
-                            min(end, int(t.strip())))))
-                else:
-                    num = int(entry.strip())
-                    if num <= end and num >= start:
-                        lst.append(num)
-            return list(set(sorted(lst)))
+            try:
+                entries = rangetxt.split(",")
+                lst = []
+                for entry in entries:
+                    if not entry:
+                        continue
+                    if '-' in entry:
+                        f, t = entry.split('-')
+                        lst.extend(
+                            range(
+                                max(start, int(f.strip())) - 1,
+                                min(end, int(t.strip()))))
+                    else:
+                        num = int(entry.strip())
+                        if num <= end and num >= start:
+                            lst.append(num - 1)
+                return list(set(sorted(lst)))
+            except ValueError:
+                raise ValueError("Wrong format used in page selection text")
 
     # https://stackoverflow.com/questions/15323574/how-to-connect-a-progress-bar-to-a-function
     def periodic_call(self):
