@@ -7,12 +7,24 @@ Created on Thu Oct  1 08:38:16 2020
 """
 import pandas as pd
 import jinja2
-import babel.numbers, babel.dates
 import weasyprint
 import os.path
 import sys, os
 import locale
 #import xlrd # just as a reminder that we need to install this package
+import babel
+# On a tested windows machine, babel wouldn't work because there
+# was no current locale set. Apparently, there is no `LC_NUMERIC`
+# environment variable, so the babel default locale of
+# `babel.default_locale('LC_NUMERIC')` returns `None`
+# Solution: Set the environment variable 'LC_ALL' since it will
+# also help with the non-existing 'LC_TIME' for example:
+mylocale = locale.getlocale()[0]
+if babel.default_locale('LC_NUMERIC') is None:
+    if os.getenv('LC_ALL') is None:
+        os.environ['LC_ALL'] = mylocale
+# it is important to import these after the fix made above:
+import babel.numbers, babel.dates
 
 
 # Jinja2 documentation: https://jinja.palletsprojects.com/en/2.11.x/
@@ -84,21 +96,6 @@ class FormLetter(object):
                 loader=jinja2.FileSystemLoader(
                         os.path.split(self.template_file)[0]))
 
-        # On a tested windows machine, babel wouldn't work because there
-        # was no current locale set. Apparently, there is no `LC_NUMERIC`
-        # environment variable, so the babel default locale of
-        # `babel.default_locale('LC_NUMERIC')` returns `None`
-        # Solution: Set the environment variable 'LC_ALL' since it will
-        # also help with the non-existing 'LC_TIME' for example:
-        self.locale = locale.getlocale()[0]
-        if babel.default_locale('LC_NUMERIC') is None:
-            if os.getenv('LC_ALL') is None:
-                os.environ['LC_ALL'] = self.locale
-        # Since the babel environment was already set during import, we
-        # need to monkey-patch a bit:
-        babel.numbers.LC_NUMERIC = babel.default_locale('LC_NUMERIC')
-        babel.numbers.LC_TIME = babel.default_locale('LC_TIME')
-
         # Add some formatters to Jinja environment, so they can be
         # used in the template:
         self.env.filters['format_currency'] = babel.numbers.format_currency
@@ -167,6 +164,22 @@ class FormLetter(object):
         doc = weasyprint.HTML(string=html)
         doc.write_pdf(file_name)
 
+    def write_to_pdf_xhtml2pdf(self, row, file_name):
+        """Save the template, filled with the data of the specified row,
+        as PDF file, using xhtml2pdf, for testing purposes.
+
+        :param row:
+            the row number of data which will be used to fill the template.
+            start counting at 0.
+        :param file_name: string;
+            Destination file name.
+
+        """
+        from xhtml2pdf import pisa
+        html = self.get_filled_html(row)
+        with open(file_name, "w+b") as f:
+            pisa.CreatePDF(html, dest=f)
+
     def get_data_row(self, row):
         return self.data.iloc[row]
 
@@ -192,9 +205,10 @@ def main(argv=sys.argv[1:]):
         if row["1_wenn_RN_verschickt"]:
             print("skipping %i/%i: %s %s" % (i + 1, total, row["RN"], row["Person"]))
             continue
-        fname = "pdf%0i_%s_%s.pdf" % (i, row["RN"], row["Person"])
-        print("procesing %i/%i: file %s" % (i + 1, total, fname))
+        fname = "pdf%02i_%s_%s.pdf" % (i, row["RN"], row["Person"])
+        print("processing %i/%i: file %s" % (i + 1, total, fname))
         fl.write_to_pdf(i, fname)
+        #fl.write_to_pdf_xhtml2pdf(i, fname)
 
 
 
