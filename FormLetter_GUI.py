@@ -3,7 +3,7 @@
 """
 Created on Wed Oct 21 01:19:16 2020
 
-@author: JÃƒÂ¼rgen Probst
+@author: Jürgen Probst
 
 """
 
@@ -158,15 +158,15 @@ class Application(tk.Frame):
         ttk.Button(
             frame, text="...", style="custom.TButton", width=4,
             command=self.choose_dest_folder).grid(row=0, column=4)
+        # Fill with sensible location:
+        self.dir_edt.insert(0, os.path.join(os.getcwd(), 'output'))
 
         tk.Label(frame, text="Output file name: ").grid(
                 row=1, column=0, sticky='w')
         self.destfile_edt = ttk.Entry(frame, width=1)
         self.destfile_edt.grid(row=1, column=1, sticky='nwse', columnspan=3)
-        self.destfile_edt.bind("<Key>", self.destfile_edt_focus_out)
-        self.destfile_edt.bind("<Button>", self.destfile_edt_focus_out)
-        self.destfile_edt.insert(0, "{i:04}_{RN}_{Person}.pdf")
-        self.destfile_edt["state"] = "readonly" # TODO
+        self.destfile_edt.bind("<FocusOut>", self.destfile_edt_focus_out)
+        self.destfile_edt.insert(0, "{row:04}_{RN}_{Person}.pdf")
         ttk.Button(
             frame, text="?", style="custom.TButton", width=4,
             command=self.show_destfile_help).grid(row=1, column=4)
@@ -341,11 +341,20 @@ class Application(tk.Frame):
             self.dir_edt.insert(0, result)
 
     def destfile_edt_focus_out(self, event=None):
-        #TODO check if right format, add ending .pdf
-        messagebox.showinfo("Under construction", "Sorry, the destination file name cannot be changed yet.")
+        #TODO check if right format
+        self.destfile = self.destfile_edt.get()
+        if os.path.splitext(self.destfile)[1] != ".pdf":
+            self.destfile_edt.insert(tk.END, ".pdf")
+            self.destfile = self.destfile_edt.get()
 
     def show_destfile_help(self):
-        messagebox.showinfo("Help", "under construction...") #TODO
+        # TODO add extra keywords {Date}, {Time}, {Day}, {Month} etc
+        messagebox.showinfo(
+            "Help",
+            "Special extra keyword is '{row}', or use any column "
+            "name supplied with your data.\nE.g. {row:04} means the number "
+            "will always be at least 4 digits long, adding zeros as "
+            "neccessary.")
 
     def select_r2(self, event=None):
         self.conversion_selection_var.set(2)
@@ -540,7 +549,7 @@ class Application(tk.Frame):
                 break
             row = fl.get_data_row(rownum)
             fname = os.path.join(
-                destdir, destfile_format.format(i=rownum+1, **row))
+                destdir, destfile_format.format(row=rownum+1, **row))
             if do_skip_data and row[skip_data_column] == skip_data_value:
                 print("skipping %i/%i: file %s" % (rownum+1, total, fname))
                 time.sleep(0.001) # just in case we skip a lot
@@ -548,7 +557,7 @@ class Application(tk.Frame):
                 self.queue.put(i + 1)
                 continue
 
-            print("procesing %i/%i: file %s" % (rownum+1, total, fname))
+            print("processing %i/%i: file %s" % (rownum+1, total, fname))
             fl.write_to_pdf(i, fname)
             # communicate progress:
             self.queue.put(i + 1)
