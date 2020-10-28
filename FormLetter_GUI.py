@@ -166,7 +166,7 @@ class Application(tk.Frame):
         self.destfile_edt = ttk.Entry(frame, width=1)
         self.destfile_edt.grid(row=1, column=1, sticky='nwse', columnspan=3)
         self.destfile_edt.bind("<FocusOut>", self.destfile_edt_focus_out)
-        self.destfile_edt.insert(0, "{row:04}_{RN}_{Person}.pdf")
+        self.destfile_edt.insert(0, "{RN}_{Person}.pdf")
         ttk.Button(
             frame, text="?", style="custom.TButton", width=4,
             command=self.show_destfile_help).grid(row=1, column=4)
@@ -551,14 +551,14 @@ class Application(tk.Frame):
             fname = os.path.join(
                 destdir, destfile_format.format(row=rownum+1, **row))
             if do_skip_data and row[skip_data_column] == skip_data_value:
-                print("skipping %i/%i: file %s" % (rownum+1, total, fname))
+                print("skipping %i/%i (data row %i): file %s" % (i+1, total, rownum + 1, fname))
                 time.sleep(0.001) # just in case we skip a lot
                 # communicate progress:
                 self.queue.put(i + 1)
                 continue
 
-            print("processing %i/%i: file %s" % (rownum+1, total, fname))
-            fl.write_to_pdf(i, fname)
+            print("processing %i/%i (data row %i): file %s" % (i+1, total, rownum + 1, fname))
+            fl.write_to_pdf(rownum, fname)
             # communicate progress:
             self.queue.put(i + 1)
 
